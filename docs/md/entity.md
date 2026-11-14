@@ -1986,6 +1986,45 @@ Runtime views are meant for when users do not know at compile-time what types to
 _use_ to iterate entities. The `storage` member function of a registry could be
 useful in this regard.
 
+### Query cache
+
+A query cache stores the result of a view for a given component composition and
+reuses it on subsequent identical queries, rather than rebuilding the candidate
+set every time:
+
+```cpp
+entt::query_cache cache{registry};
+
+// built once, then served from the cache
+for(const auto entity: cache.query<position, velocity>()) {
+    // ...
+}
+```
+
+The first query for a composition iterates the underlying view and stores the
+matching entities. Repeated queries for the same composition return the cached
+result and are considerably faster than a full view iteration.<br/>
+Filters are supported as with views:
+
+```cpp
+const auto &entities = cache.query<position>(entt::exclude<dead>);
+```
+
+Cached results are automatically invalidated when an entity is created or
+destroyed or when a component of interest is added to or removed from an
+entity. Updating the value of a component doesn't invalidate the cache, since
+it doesn't affect the matching set.<br/>
+The `refresh` member function forces a rebuild of a cached result, while
+`clear` drops all cached results and disconnects all listeners. The `hits` and
+`misses` counters tell how many queries were served from the cache and how
+many rebuilt a result instead.
+
+The returned entities are the same ones a view would return for the same
+composition. Their order matches the view iteration order as of the last cache
+rebuild.<br/>
+Note that the cache is not thread-safe: concurrent queries and mutations on
+the same registry require external synchronization.
+
 ## Groups
 
 Groups are meant to iterate multiple components at once and to offer a faster

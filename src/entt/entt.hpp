@@ -35,6 +35,7 @@ namespace entt::stl {}
 #include "entity/helper.hpp"
 #include "entity/mixin.hpp"
 #include "entity/organizer.hpp"
+#include "entity/query_cache.hpp"
 #include "entity/ranges.hpp"
 #include "entity/registry.hpp"
 #include "entity/runtime_view.hpp"

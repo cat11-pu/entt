@@ -44,6 +44,9 @@ class basic_reactive_mixin;
 template<typename Entity = entity, typename = stl::allocator<Entity>>
 class basic_registry;
 
+template<typename Registry = basic_registry<>>
+class basic_query_cache;
+
 template<typename, typename>
 class basic_view;
 
@@ -94,6 +97,9 @@ using reactive_mixin = basic_reactive_mixin<Type, basic_registry<typename Type::
 
 /*! @brief Alias declaration for the most common use case. */
 using registry = basic_registry<>;
+
+/*! @brief Alias declaration for the most common use case. */
+using query_cache = basic_query_cache<>;
 
 /*! @brief Alias declaration for the most common use case. */
 using organizer = basic_organizer<registry>;

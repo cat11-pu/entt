@@ -6,6 +6,7 @@
 #include <gtest/gtest.h>
 #include <entt/core/algorithm.hpp>
 #include <entt/entity/mixin.hpp>
+#include <entt/entity/query_cache.hpp>
 #include <entt/entity/registry.hpp>
 #include <entt/entity/runtime_view.hpp>
 #include <entt/entity/storage.hpp>
@@ -1149,6 +1150,114 @@ TEST(Benchmark, IteratePathologicalFullOwningGroup) {
 TEST(Benchmark, IteratePathologicalPartialOwningGroup) {
     std::cout << "Pathological case (partial-owning group)" << std::endl;
     pathological_with([](auto &registry) { return registry.template group<position, velocity>(entt::get<comp<0>>); });
+}
+
+TEST(Benchmark, QueryCacheTwoComponents1M) {
+    entt::registry registry;
+
+    std::cout << "Querying 1000000 entities, two components, 100 repetitions" << std::endl;
+
+    for(std::uint64_t i = 0; i < 1000000L; i++) {
+        const auto entt = registry.create();
+        registry.emplace<position>(entt);
+        registry.emplace<velocity>(entt);
+    }
+
+    entt::query_cache cache{registry};
+    std::uint64_t acc{};
+
+    std::cout << "direct view: ";
+    generic_with([&]() {
+        for(auto i = 0; i < 100; ++i) {
+            for(const auto entt: registry.view<position, velocity>()) {
+                acc += static_cast<std::uint64_t>(entt);
+            }
+        }
+    });
+
+    std::cout << "cached query: ";
+    generic_with([&]() {
+        for(auto i = 0; i < 100; ++i) {
+            for(const auto entt: cache.query<position, velocity>()) {
+                acc += static_cast<std::uint64_t>(entt);
+            }
+        }
+    });
+
+    std::cout << "checksum: " << acc << ", hits: " << cache.hits() << ", misses: " << cache.misses() << std::endl;
+}
+
+TEST(Benchmark, QueryCacheTwoComponents1MHalf) {
+    entt::registry registry;
+
+    std::cout << "Querying 1000000 entities, two components, half of the entities have all the components, 100 repetitions" << std::endl;
+
+    for(std::uint64_t i = 0; i < 1000000L; i++) {
+        const auto entt = registry.create();
+        registry.emplace<velocity>(entt);
+
+        if(i % 2) {
+            registry.emplace<position>(entt);
+        }
+    }
+
+    entt::query_cache cache{registry};
+    std::uint64_t acc{};
+
+    std::cout << "direct view: ";
+    generic_with([&]() {
+        for(auto i = 0; i < 100; ++i) {
+            for(const auto entt: registry.view<position, velocity>()) {
+                acc += static_cast<std::uint64_t>(entt);
+            }
+        }
+    });
+
+    std::cout << "cached query: ";
+    generic_with([&]() {
+        for(auto i = 0; i < 100; ++i) {
+            for(const auto entt: cache.query<position, velocity>()) {
+                acc += static_cast<std::uint64_t>(entt);
+            }
+        }
+    });
+
+    std::cout << "checksum: " << acc << ", hits: " << cache.hits() << ", misses: " << cache.misses() << std::endl;
+}
+
+TEST(Benchmark, QueryCacheInvalidation1M) {
+    entt::registry registry;
+
+    std::cout << "Querying 1000000 entities, two components, cache invalidated between repetitions" << std::endl;
+
+    std::vector<entt::entity> entity(1000);
+
+    for(std::uint64_t i = 0; i < 1000000L; i++) {
+        const auto entt = registry.create();
+        registry.emplace<position>(entt);
+        registry.emplace<velocity>(entt);
+
+        if(i < 1000) {
+            entity[static_cast<std::size_t>(i)] = entt;
+        }
+    }
+
+    entt::query_cache cache{registry};
+    std::uint64_t acc{};
+
+    generic_with([&]() {
+        for(std::size_t i = 0; i < entity.size(); ++i) {
+            // alternate invalidation and cache hit
+            registry.remove<velocity>(entity[i]);
+            registry.emplace<velocity>(entity[i]);
+
+            for(const auto entt: cache.query<position, velocity>()) {
+                acc += static_cast<std::uint64_t>(entt);
+            }
+        }
+    });
+
+    std::cout << "checksum: " << acc << ", hits: " << cache.hits() << ", misses: " << cache.misses() << std::endl;
 }
 
 TEST(Benchmark, SortSingle) {
