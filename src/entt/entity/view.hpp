@@ -65,10 +65,21 @@ class view_iterator final {
     using iterator_type = Type::const_iterator;
     using iterator_traits = stl::iterator_traits<iterator_type>;
 
+    template<stl::size_t... Pos>
+    [[nodiscard]] bool all_of(const iterator_traits::value_type entt, stl::index_sequence<Pos...>) const noexcept {
+        // unrolled at compile-time, the leading storage is skipped by position
+        return (((static_cast<difference_type>(Pos) == index) || pools[Pos]->contains(entt)) && ...);
+    }
+
+    template<stl::size_t... Pos>
+    [[nodiscard]] bool none_of(const iterator_traits::value_type entt, stl::index_sequence<Pos...>) const noexcept {
+        return ((!filter[Pos]->contains(entt)) && ...);
+    }
+
     [[nodiscard]] bool valid(const iterator_traits::value_type entt) const noexcept {
         return (!Checked || (entt != tombstone))
-               && ((Get == 1u) || (internal::all_of(pools.begin(), pools.begin() + index, entt) && internal::all_of(pools.begin() + index + 1, pools.end(), entt)))
-               && ((Exclude == 0u) || internal::none_of(filter.begin(), filter.end(), entt));
+               && all_of(entt, stl::make_index_sequence<Get>{})
+               && none_of(entt, stl::make_index_sequence<Exclude>{});
     }
 
     void seek_next() {
@@ -144,6 +155,19 @@ struct extended_view_iterator final {
     extended_view_iterator(iterator_type from)
         : it{from} {}
 
+    template<typename Storage>
+    [[nodiscard]] auto unpack(const auto *pool, const stl::size_t pos) const noexcept {
+        auto *concrete = static_cast<Storage *>(const_cast<constness_as_t<typename Storage::base_type, Storage> *>(pool));
+
+        if constexpr(stl::is_void_v<typename Storage::value_type>) {
+            return concrete->get_as_tuple(*it);
+        } else {
+            // the leading storage drives the iteration: its elements are
+            // directly accessible by position, no sparse lookup required
+            return (pos == static_cast<stl::size_t>(it.index)) ? stl::forward_as_tuple(concrete->value_at(static_cast<stl::size_t>(it.it.index()))) : concrete->get_as_tuple(*it);
+        }
+    }
+
     extended_view_iterator &operator++() noexcept {
         return ++it, *this;
     }
@@ -155,7 +179,7 @@ struct extended_view_iterator final {
 
     [[nodiscard]] reference operator*() const noexcept {
         return [this]<auto... Index>(stl::index_sequence<Index...>) {
-            return stl::tuple_cat(stl::make_tuple(*it), static_cast<Get *>(const_cast<constness_as_t<typename Get::base_type, Get> *>(stl::get<Index>(it.pools)))->get_as_tuple(*it)...);
+            return stl::tuple_cat(stl::make_tuple(*it), unpack<Get>(stl::get<Index>(it.pools), static_cast<stl::size_t>(Index))...);
         }(stl::index_sequence_for<Get...>{});
     }
 

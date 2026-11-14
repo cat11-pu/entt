@@ -644,6 +644,17 @@ public:
         return stl::forward_as_tuple(get(entt));
     }
 
+    /*! @cond ENTT_INTERNAL */
+    [[nodiscard]] const value_type &value_at(const size_type pos) const noexcept {
+        ENTT_ASSERT(pos < base_type::size(), "Invalid element");
+        return element_at(pos);
+    }
+
+    [[nodiscard]] value_type &value_at(const size_type pos) noexcept {
+        return const_cast<value_type &>(stl::as_const(*this).value_at(pos));
+    }
+    /*! @endcond */
+
     /**
      * @brief Assigns an entity to a storage and constructs its object.
      *
