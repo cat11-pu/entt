@@ -278,6 +278,7 @@ SETUP_BASIC_TEST(
         entt/entity/helper.cpp
         entt/entity/io.cpp
         entt/entity/organizer.cpp
+        entt/entity/property.cpp
         entt/entity/reactive_mixin.cpp
         entt/entity/registry.cpp
         entt/entity/runtime_view.cpp

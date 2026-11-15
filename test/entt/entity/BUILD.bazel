@@ -9,6 +9,7 @@ _TESTS = [
     "handle",
     "helper",
     "organizer",
+    "property",
     "reactive_mixin",
     "registry",
     "runtime_view",
