@@ -291,6 +291,12 @@ SETUP_BASIC_TEST(
         entt/entity/view.cpp
 )
 
+SETUP_BASIC_TEST(
+    NAME entity_property
+    SOURCES
+        entt/entity/property.cpp
+)
+
 # Test entity_no_mixin
 
 SETUP_BASIC_TEST(
