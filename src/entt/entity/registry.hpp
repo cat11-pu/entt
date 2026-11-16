@@ -253,6 +253,19 @@ class basic_registry {
         }
     }
 
+    template<typename Type>
+    static auto &invalid_value() noexcept {
+        using element_type = stl::remove_const_t<Type>;
+        using reference_type = stl::conditional_t<stl::is_const_v<Type>, const element_type, element_type>;
+        static element_type value{};
+        return static_cast<reference_type &>(value);
+    }
+
+    template<typename Type>
+    static auto &invalid_const_value() noexcept {
+        return stl::as_const(invalid_value<Type>());
+    }
+
     void rebind() {
         entities.bind(*this);
 
@@ -502,6 +515,10 @@ public:
      * @return The version of the recycled entity.
      */
     version_type destroy(const entity_type entt) {
+        if(!valid(entt)) {
+            return current(entt);
+        }
+
         for(size_type pos = pools.size(); pos != 0u; --pos) {
             pools.begin()[static_cast<pool_container_type::difference_type>(pos - 1u)].second->remove(entt);
         }
@@ -523,6 +540,10 @@ public:
      * @return The version actually assigned to the entity.
      */
     version_type destroy(const entity_type entt, const version_type version) {
+        if(!valid(entt)) {
+            return current(entt);
+        }
+
         destroy(entt);
         const auto elem = traits_type::construct(traits_type::to_entity(entt), version);
         return entities.bump((elem == tombstone) ? traits_type::next(elem) : elem);
@@ -564,7 +585,16 @@ public:
      */
     template<typename Type, typename... Args>
     decltype(auto) emplace(const entity_type entt, Args &&...args) {
-        ENTT_ASSERT(valid(entt), "Invalid entity");
+        if(!valid(entt)) {
+            if constexpr(!stl::is_void_v<typename storage_for_type<Type>::value_type>) {
+                if constexpr(stl::is_default_constructible_v<stl::remove_const_t<Type>>) {
+                    return invalid_value<Type>();
+                }
+            } else {
+                return;
+            }
+        }
+
         return assure<Type>().emplace(entt, stl::forward<Args>(args)...);
     }
 
@@ -580,8 +610,13 @@ public:
      */
     template<typename Type>
     void insert(stl::input_iterator auto first, stl::input_iterator auto last, const Type &value = {}) {
-        ENTT_ASSERT(stl::all_of(first, last, [this](const auto entt) { return valid(entt); }), "Invalid entity");
-        assure<Type>().insert(stl::move(first), stl::move(last), value);
+        auto &cpool = assure<Type>();
+
+        for(; first != last; ++first) {
+            if(valid(*first)) {
+                cpool.emplace(*first, value);
+            }
+        }
     }
 
     /**
@@ -599,8 +634,13 @@ public:
     template<typename Type, typename EIt, typename CIt>
     requires stl::same_as<typename stl::iterator_traits<CIt>::value_type, Type>
     void insert(EIt first, EIt last, CIt from) {
-        ENTT_ASSERT(stl::all_of(first, last, [this](const auto entt) { return valid(entt); }), "Invalid entity");
-        assure<Type>().insert(first, last, from);
+        auto &cpool = assure<Type>();
+
+        for(; first != last; ++first, ++from) {
+            if(valid(*first)) {
+                cpool.emplace(*first, *from);
+            }
+        }
     }
 
     /**
@@ -617,8 +657,17 @@ public:
      */
     template<typename Type, typename... Args>
     decltype(auto) emplace_or_replace(const entity_type entt, Args &&...args) {
+        if(!valid(entt)) {
+            if constexpr(!stl::is_void_v<typename storage_for_type<Type>::value_type>) {
+                if constexpr(stl::is_default_constructible_v<stl::remove_const_t<Type>>) {
+                    return invalid_value<Type>();
+                }
+            } else {
+                return;
+            }
+        }
+
         auto &cpool = assure<Type>();
-        ENTT_ASSERT(valid(entt), "Invalid entity");
         return cpool.contains(entt) ? cpool.patch(entt, [&args...](auto &...curr) { ((curr = Type{stl::forward<Args>(args)...}), ...); }) : cpool.emplace(entt, stl::forward<Args>(args)...);
     }
 
@@ -643,6 +692,16 @@ public:
      */
     template<typename Type, typename... Func>
     decltype(auto) patch(const entity_type entt, Func &&...func) {
+        if(!valid(entt)) {
+            if constexpr(!stl::is_void_v<typename storage_for_type<Type>::value_type>) {
+                if constexpr(stl::is_default_constructible_v<stl::remove_const_t<Type>>) {
+                    return invalid_value<Type>();
+                }
+            } else {
+                return;
+            }
+        }
+
         return assure<Type>().patch(entt, stl::forward<Func>(func)...);
     }
 
@@ -663,6 +722,16 @@ public:
      */
     template<typename Type, typename... Args>
     decltype(auto) replace(const entity_type entt, Args &&...args) {
+        if(!valid(entt)) {
+            if constexpr(!stl::is_void_v<typename storage_for_type<Type>::value_type>) {
+                if constexpr(stl::is_default_constructible_v<stl::remove_const_t<Type>>) {
+                    return invalid_value<Type>();
+                }
+            } else {
+                return;
+            }
+        }
+
         return patch<Type>(entt, [&args...](auto &...curr) { ((curr = Type{stl::forward<Args>(args)...}), ...); });
     }
 
@@ -675,7 +744,7 @@ public:
      */
     template<typename Type, typename... Other>
     size_type remove(const entity_type entt) {
-        return (assure<Type>().remove(entt) + ... + assure<Other>().remove(entt));
+        return valid(entt) ? (assure<Type>().remove(entt) + ... + assure<Other>().remove(entt)) : size_type{};
     }
 
     /**
@@ -729,7 +798,9 @@ public:
      */
     template<typename Type, typename... Other>
     void erase(const entity_type entt) {
-        (assure<Type>().erase(entt), (assure<Other>().erase(entt), ...));
+        if(valid(entt)) {
+            (assure<Type>().erase(entt), (assure<Other>().erase(entt), ...));
+        }
     }
 
     /**
@@ -846,8 +917,22 @@ public:
     template<typename... Type>
     [[nodiscard]] decltype(auto) get([[maybe_unused]] const entity_type entt) const {
         if constexpr(sizeof...(Type) == 1u) {
+            if constexpr(stl::is_void_v<typename storage_for_type<stl::tuple_element_t<0u, stl::tuple<Type...>>>::value_type>) {
+                if(!valid(entt)) {
+                    return;
+                }
+            } else if constexpr(stl::is_default_constructible_v<stl::remove_const_t<stl::tuple_element_t<0u, stl::tuple<Type...>>>>) {
+                if(!valid(entt)) {
+                    return invalid_const_value<stl::tuple_element_t<0u, stl::tuple<Type...>>>();
+                }
+            }
+
             return (assure<stl::remove_const_t<Type>>()->get(entt), ...);
         } else {
+            if(!valid(entt) && (stl::is_default_constructible_v<stl::remove_const_t<Type>> && ...)) {
+                return stl::forward_as_tuple(invalid_const_value<Type>()...);
+            }
+
             return stl::forward_as_tuple(get<Type>(entt)...);
         }
     }
@@ -856,8 +941,22 @@ public:
     template<typename... Type>
     [[nodiscard]] decltype(auto) get([[maybe_unused]] const entity_type entt) {
         if constexpr(sizeof...(Type) == 1u) {
+            if constexpr(stl::is_void_v<typename storage_for_type<stl::tuple_element_t<0u, stl::tuple<Type...>>>::value_type>) {
+                if(!valid(entt)) {
+                    return;
+                }
+            } else if constexpr(stl::is_default_constructible_v<stl::remove_const_t<stl::tuple_element_t<0u, stl::tuple<Type...>>>>) {
+                if(!valid(entt)) {
+                    return invalid_value<stl::tuple_element_t<0u, stl::tuple<Type...>>>();
+                }
+            }
+
             return (static_cast<storage_for_type<Type> &>(assure<stl::remove_const_t<Type>>()).get(entt), ...);
         } else {
+            if(!valid(entt) && (stl::is_default_constructible_v<stl::remove_const_t<Type>> && ...)) {
+                return stl::forward_as_tuple(invalid_value<Type>()...);
+            }
+
             return stl::forward_as_tuple(get<Type>(entt)...);
         }
     }
@@ -879,8 +978,17 @@ public:
      */
     template<typename Type, typename... Args>
     [[nodiscard]] decltype(auto) get_or_emplace(const entity_type entt, Args &&...args) {
+        if(!valid(entt)) {
+            if constexpr(!stl::is_void_v<typename storage_for_type<Type>::value_type>) {
+                if constexpr(stl::is_default_constructible_v<stl::remove_const_t<Type>>) {
+                    return invalid_value<Type>();
+                }
+            } else {
+                return;
+            }
+        }
+
         auto &cpool = assure<Type>();
-        ENTT_ASSERT(valid(entt), "Invalid entity");
         return cpool.contains(entt) ? cpool.get(entt) : cpool.emplace(entt, stl::forward<Args>(args)...);
     }
 

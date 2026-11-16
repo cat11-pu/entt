@@ -95,6 +95,18 @@ class basic_handle {
         return static_cast<Registry &>(*owner);
     }
 
+    [[nodiscard]] bool valid_or_null() const noexcept {
+        return owner != nullptr && entt != null && owner->valid(entt);
+    }
+
+    template<typename Type>
+    static auto &invalid_element() noexcept {
+        using element_type = stl::remove_const_t<Type>;
+        using reference_type = stl::conditional_t<stl::is_const_v<Registry> || stl::is_const_v<Type>, const element_type, element_type>;
+        static element_type value{};
+        return static_cast<reference_type &>(value);
+    }
+
 public:
     /*! @brief Type of registry accepted by the handle. */
     using registry_type = Registry;
@@ -132,6 +144,10 @@ public:
      * @return An iterable object to use to _visit_ the handle.
      */
     [[nodiscard]] iterable storage() const noexcept {
+        if(owner == nullptr || entt == null) {
+            return {};
+        }
+
         auto underlying = owner_or_assert().storage();
         return iterable{{entt, underlying.begin(), underlying.end()}, {entt, underlying.end(), underlying.end()}};
     }
@@ -173,7 +189,11 @@ public:
 
     /*! @brief Destroys the entity associated with a handle. */
     void destroy() {
-        owner_or_assert().destroy(stl::exchange(entt, null));
+        if(valid_or_null()) {
+            owner_or_assert().destroy(stl::exchange(entt, null));
+        } else {
+            entt = null;
+        }
     }
 
     /**
@@ -181,7 +201,11 @@ public:
      * @param version A desired version upon destruction.
      */
     void destroy(const version_type version) {
-        owner_or_assert().destroy(stl::exchange(entt, null), version);
+        if(valid_or_null()) {
+            owner_or_assert().destroy(stl::exchange(entt, null), version);
+        } else {
+            entt = null;
+        }
     }
 
     /**
@@ -195,6 +219,13 @@ public:
     // NOLINTNEXTLINE(modernize-use-nodiscard)
     decltype(auto) emplace(Args &&...args) const {
         static_assert(((sizeof...(Scope) == 0) || ... || stl::is_same_v<Type, Scope>), "Invalid type");
+
+        if constexpr(stl::is_default_constructible_v<stl::remove_const_t<Type>>) {
+            if(!valid_or_null()) {
+                return invalid_element<Type>();
+            }
+        }
+
         return owner_or_assert().template emplace<Type>(entt, stl::forward<Args>(args)...);
     }
 
@@ -208,6 +239,13 @@ public:
     template<typename Type, typename... Args>
     decltype(auto) emplace_or_replace(Args &&...args) const {
         static_assert(((sizeof...(Scope) == 0) || ... || stl::is_same_v<Type, Scope>), "Invalid type");
+
+        if constexpr(stl::is_default_constructible_v<stl::remove_const_t<Type>>) {
+            if(!valid_or_null()) {
+                return invalid_element<Type>();
+            }
+        }
+
         return owner_or_assert().template emplace_or_replace<Type>(entt, stl::forward<Args>(args)...);
     }
 
@@ -221,6 +259,13 @@ public:
     template<typename Type, typename... Func>
     decltype(auto) patch(Func &&...func) const {
         static_assert(((sizeof...(Scope) == 0) || ... || stl::is_same_v<Type, Scope>), "Invalid type");
+
+        if constexpr(stl::is_default_constructible_v<stl::remove_const_t<Type>>) {
+            if(!valid_or_null()) {
+                return invalid_element<Type>();
+            }
+        }
+
         return owner_or_assert().template patch<Type>(entt, stl::forward<Func>(func)...);
     }
 
@@ -234,6 +279,13 @@ public:
     template<typename Type, typename... Args>
     decltype(auto) replace(Args &&...args) const {
         static_assert(((sizeof...(Scope) == 0) || ... || stl::is_same_v<Type, Scope>), "Invalid type");
+
+        if constexpr(stl::is_default_constructible_v<stl::remove_const_t<Type>>) {
+            if(!valid_or_null()) {
+                return invalid_element<Type>();
+            }
+        }
+
         return owner_or_assert().template replace<Type>(entt, stl::forward<Args>(args)...);
     }
 
@@ -246,7 +298,7 @@ public:
     // NOLINTNEXTLINE(modernize-use-nodiscard)
     size_type remove() const {
         static_assert(sizeof...(Scope) == 0 || (type_list_contains_v<type_list<Scope...>, Type> && ...), "Invalid type");
-        return owner_or_assert().template remove<Type...>(entt);
+        return valid_or_null() ? owner_or_assert().template remove<Type...>(entt) : size_type{};
     }
 
     /**
@@ -256,7 +308,10 @@ public:
     template<typename... Type>
     void erase() const {
         static_assert(sizeof...(Scope) == 0 || (type_list_contains_v<type_list<Scope...>, Type> && ...), "Invalid type");
-        owner_or_assert().template erase<Type...>(entt);
+
+        if(valid_or_null()) {
+            owner_or_assert().template erase<Type...>(entt);
+        }
     }
 
     /**
@@ -266,7 +321,7 @@ public:
      */
     template<typename... Type>
     [[nodiscard]] decltype(auto) all_of() const {
-        return owner_or_assert().template all_of<Type...>(entt);
+        return valid_or_null() && owner_or_assert().template all_of<Type...>(entt);
     }
 
     /**
@@ -277,7 +332,7 @@ public:
      */
     template<typename... Type>
     [[nodiscard]] decltype(auto) any_of() const {
-        return owner_or_assert().template any_of<Type...>(entt);
+        return valid_or_null() && owner_or_assert().template any_of<Type...>(entt);
     }
 
     /**
@@ -288,6 +343,18 @@ public:
     template<typename... Type>
     [[nodiscard]] decltype(auto) get() const {
         static_assert(sizeof...(Scope) == 0 || (type_list_contains_v<type_list<Scope...>, Type> && ...), "Invalid type");
+
+        if constexpr((stl::is_default_constructible_v<stl::remove_const_t<Type>> && ...)) {
+            if(!valid_or_null()) {
+                if constexpr(sizeof...(Type) == 1u) {
+                    using first_type = stl::tuple_element_t<0u, stl::tuple<Type...>>;
+                    return invalid_element<first_type>();
+                } else {
+                    return stl::forward_as_tuple(invalid_element<Type>()...);
+                }
+            }
+        }
+
         return owner_or_assert().template get<Type...>(entt);
     }
 
@@ -301,6 +368,13 @@ public:
     template<typename Type, typename... Args>
     [[nodiscard]] decltype(auto) get_or_emplace(Args &&...args) const {
         static_assert(((sizeof...(Scope) == 0) || ... || stl::is_same_v<Type, Scope>), "Invalid type");
+
+        if constexpr(stl::is_default_constructible_v<stl::remove_const_t<Type>>) {
+            if(!valid_or_null()) {
+                return invalid_element<Type>();
+            }
+        }
+
         return owner_or_assert().template get_or_emplace<Type>(entt, stl::forward<Args>(args)...);
     }
 
@@ -312,7 +386,18 @@ public:
     template<typename... Type>
     [[nodiscard]] auto try_get() const {
         static_assert(sizeof...(Scope) == 0 || (type_list_contains_v<type_list<Scope...>, Type> && ...), "Invalid type");
-        return owner_or_assert().template try_get<Type...>(entt);
+
+        if constexpr(sizeof...(Type) == 1u) {
+            return valid_or_null() ? owner_or_assert().template try_get<Type...>(entt) : nullptr;
+        } else {
+            return [this]<auto... Index>(stl::index_sequence<Index...>) {
+                if constexpr(sizeof...(Index) == 0u) {
+                    return stl::tuple{};
+                } else {
+                    return stl::make_tuple(((void)Index, try_get<Type>())...);
+                }
+            }(stl::index_sequence_for<Type...>{});
+        }
     }
 
     /**
@@ -320,7 +405,7 @@ public:
      * @return True if the handle has no elements assigned, false otherwise.
      */
     [[nodiscard]] bool orphan() const {
-        return owner_or_assert().orphan(entt);
+        return !valid_or_null() || owner_or_assert().orphan(entt);
     }
 
     /**

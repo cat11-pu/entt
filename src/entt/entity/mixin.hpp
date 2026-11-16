@@ -77,11 +77,12 @@ private:
         if(auto &reg = owner_or_assert(); destruction.empty()) {
             underlying_type::pop(first, last);
         } else {
-            for(; first != last; ++first) {
+            for(; first != last && first.index() >= typename underlying_iterator::difference_type{}; ++first) {
                 const auto entt = *first;
                 destruction.publish(reg, entt);
                 const auto it = underlying_type::find(entt);
                 underlying_type::pop(it, it + 1u);
+                first.sync();
             }
         }
     }

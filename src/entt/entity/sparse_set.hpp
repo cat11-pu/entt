@@ -22,24 +22,55 @@ namespace entt {
 /*! @cond ENTT_INTERNAL */
 namespace internal {
 
-template<typename Container>
+template<typename Container, typename Owner = void>
 struct sparse_set_iterator final {
+    template<typename, typename>
+    friend struct sparse_set_iterator;
+
     using value_type = Container::value_type;
     using pointer = Container::const_pointer;
     using reference = Container::const_reference;
     using difference_type = Container::difference_type;
     using iterator_category = stl::random_access_iterator_tag;
+    using entity_type = stl::conditional_t<stl::is_void_v<Owner>, value_type, typename Owner::entity_type>;
 
     constexpr sparse_set_iterator() noexcept
         : packed{},
-          offset{} {}
+          owner{},
+          offset{},
+          expected{},
+          limit{},
+          revision{},
+          removals{},
+          current{},
+          tracked{} {}
 
     constexpr sparse_set_iterator(const Container &ref, const difference_type idx) noexcept
         : packed{&ref},
-          offset{idx} {}
+          owner{},
+          offset{idx},
+          expected{static_cast<difference_type>(ref.size())},
+          limit{idx},
+          revision{},
+          removals{},
+          current{},
+          tracked{} {}
+
+    constexpr sparse_set_iterator(const Container &ref, const Owner *parent, const difference_type idx) noexcept
+        : packed{&ref},
+          owner{parent},
+          offset{idx},
+          expected{parent ? static_cast<difference_type>(parent->size()) : static_cast<difference_type>(ref.size())},
+          limit{parent ? static_cast<difference_type>(parent->size()) : idx},
+          revision{parent ? parent->mutation() : 0u},
+          removals{parent ? parent->removed() : 0u},
+          current{},
+          tracked{} {}
 
     constexpr sparse_set_iterator &operator++() noexcept {
-        return --offset, *this;
+        refresh();
+        offset -= static_cast<difference_type>(offset != difference_type{});
+        return *this;
     }
 
     constexpr sparse_set_iterator operator++(int) noexcept {
@@ -48,7 +79,28 @@ struct sparse_set_iterator final {
     }
 
     constexpr sparse_set_iterator &operator--() noexcept {
-        return ++offset, *this;
+        if constexpr(!stl::is_void_v<Owner>) {
+            if(owner) {
+                const auto length = static_cast<difference_type>(owner->size());
+
+                if((owner->mutation() != revision) || (length < expected)) {
+                    offset = limit;
+                } else if(offset < limit) {
+                    ++offset;
+                }
+
+                expected = (expected < length) ? length : expected;
+                revision = owner->mutation();
+                removals = owner->removed();
+                tracked = false;
+            } else {
+                ++offset;
+            }
+        } else {
+            ++offset;
+        }
+
+        return *this;
     }
 
     constexpr sparse_set_iterator operator--(int) noexcept {
@@ -71,11 +123,30 @@ struct sparse_set_iterator final {
     }
 
     constexpr sparse_set_iterator operator-(const difference_type value) const noexcept {
-        return (*this + -value);
+        sparse_set_iterator copy = *this;
+
+        if constexpr(!stl::is_void_v<Owner>) {
+            if(copy.owner) {
+                const auto length = static_cast<difference_type>(copy.owner->size());
+                copy.limit = (copy.limit < length) ? length : copy.limit;
+            }
+        }
+
+        copy += -value;
+        return copy;
     }
 
     [[nodiscard]] constexpr reference operator[](const difference_type value) const noexcept {
-        return (*packed)[static_cast<Container::size_type>(index() - value)];
+        const auto pos = index() - value;
+
+        if constexpr(!stl::is_void_v<Owner>) {
+            if(owner && pos >= difference_type{} && pos < static_cast<difference_type>(owner->size())) {
+                current = owner->data()[static_cast<Container::size_type>(pos)];
+                tracked = true;
+            }
+        }
+
+        return (*packed)[static_cast<Container::size_type>(pos)];
     }
 
     [[nodiscard]] constexpr pointer operator->() const noexcept {
@@ -108,9 +179,52 @@ struct sparse_set_iterator final {
         return offset - 1;
     }
 
+    /*! @cond ENTT_INTERNAL */
+    constexpr void sync() noexcept {
+        if constexpr(!stl::is_void_v<Owner>) {
+            if(owner) {
+                expected = static_cast<difference_type>(owner->size());
+                revision = owner->mutation();
+                removals = owner->removed();
+                tracked = false;
+            }
+        }
+    }
+    /*! @endcond */
+
 private:
+    constexpr void refresh() noexcept {
+        if constexpr(!stl::is_void_v<Owner>) {
+            if(owner) {
+                const auto length = static_cast<difference_type>(owner->size());
+                const auto mutation = owner->mutation();
+                const auto removed_count = owner->removed();
+                const bool current_removed = tracked
+                                             && (removed_count == removals + 1u)
+                                             && !owner->contains(current)
+                                             && ((length + 1 == expected) || (length == expected));
+
+                if((mutation != revision) && !(mutation == revision + 1u && current_removed)) {
+                    offset = {};
+                }
+
+                expected = length;
+                revision = mutation;
+                removals = removed_count;
+                tracked = false;
+            }
+        }
+    }
+
     const Container *packed;
+    const Owner *owner;
     difference_type offset;
+    difference_type expected;
+    difference_type limit;
+    stl::size_t revision;
+    stl::size_t removals;
+    mutable entity_type current;
+    mutable bool tracked;
 };
 
 } // namespace internal
@@ -144,6 +258,13 @@ class basic_sparse_set {
     using traits_type = entt_traits<Entity>;
 
     static constexpr auto max_size = static_cast<stl::size_t>(traits_type::to_entity(null));
+    stl::size_t revision{};
+    stl::size_t removed_count{};
+
+    void touch(const stl::size_t count = 1u) noexcept {
+        ++revision;
+        removed_count += count;
+    }
 
     // it could be auto but gcc complains and emits a warning due to a false positive
     [[nodiscard]] stl::size_t policy_to_head() const noexcept {
@@ -223,7 +344,8 @@ private:
 
 protected:
     /*! @brief Random access iterator type. */
-    using basic_iterator = internal::sparse_set_iterator<packed_container_type>;
+    using basic_iterator = internal::sparse_set_iterator<packed_container_type, basic_sparse_set<Entity, Allocator>>;
+    Entity removing{null};
 
     /**
      * @brief Erases an entity from a sparse set.
@@ -234,6 +356,7 @@ protected:
         const auto pos = index(entt);
         bump(traits_type::next(entt));
         swap_at(pos, head -= (pos < head));
+        touch();
     }
 
     /**
@@ -252,6 +375,7 @@ protected:
         // lazy self-assignment guard
         self = null;
         packed.pop_back();
+        touch();
     }
 
     /**
@@ -262,6 +386,7 @@ protected:
         ENTT_ASSERT(mode == deletion_policy::in_place, "Deletion policy mismatch");
         const auto pos = entity_to_pos(stl::exchange(sparse_ref(entt), null));
         packed[pos] = traits_type::combine(static_cast<traits_type::entity_type>(stl::exchange(head, pos)), tombstone);
+        touch();
     }
 
     /**
@@ -272,17 +397,17 @@ protected:
     virtual void pop(basic_iterator first, basic_iterator last) {
         switch(mode) {
         case deletion_policy::swap_and_pop:
-            for(; first != last; ++first) {
+            for(; first != last && first.index() >= difference_type{}; ++first) {
                 swap_and_pop(*first);
             }
             break;
         case deletion_policy::in_place:
-            for(; first != last; ++first) {
+            for(; first != last && first.index() >= difference_type{}; ++first) {
                 in_place_pop(*first);
             }
             break;
         case deletion_policy::swap_only:
-            for(; first != last; ++first) {
+            for(; first != last && first.index() >= difference_type{}; ++first) {
                 swap_only(*first);
             }
             break;
@@ -291,6 +416,8 @@ protected:
 
     /*! @brief Erases all entities of a sparse set. */
     virtual void pop_all() {
+        const auto count = packed.size();
+
         if(!packed.empty()) {
             // suboptimal with few entities, but exploits cache way more with many
             for(auto &&elem: sparse) {
@@ -304,6 +431,10 @@ protected:
 
         head = policy_to_head();
         packed.clear();
+
+        if(count != 0u) {
+            touch(count);
+        }
     }
 
     /**
@@ -313,7 +444,18 @@ protected:
      * @return Iterator pointing to the emplaced element.
      */
     virtual basic_iterator try_emplace(const Entity entt, const bool force_back, const void * = nullptr) {
-        ENTT_ASSERT(entt != null && entt != tombstone, "Invalid element");
+        if(entt == null || entt == tombstone) {
+            return end();
+        }
+
+        if(contains(entt)) {
+            const auto pos = entity_to_pos(*sparse_ptr(entt));
+
+            if((mode != deletion_policy::swap_only) || (pos < head)) {
+                return find(entt);
+            }
+        }
+
         auto &elem = assure_at_least(entt);
         auto pos = size();
 
@@ -584,6 +726,16 @@ public:
         return packed.size();
     }
 
+    /*! @cond ENTT_INTERNAL */
+    [[nodiscard]] size_type mutation() const noexcept {
+        return revision;
+    }
+
+    [[nodiscard]] size_type removed() const noexcept {
+        return removed_count;
+    }
+    /*! @endcond */
+
     /**
      * @brief Checks whether a sparse set is empty.
      * @return True if the sparse set is empty, false otherwise.
@@ -618,7 +770,7 @@ public:
      */
     [[nodiscard]] iterator begin() const noexcept {
         const auto pos = static_cast<difference_type>(packed.size());
-        return iterator{packed, pos};
+        return iterator{packed, this, pos};
     }
 
     /*! @copydoc begin */
@@ -632,7 +784,7 @@ public:
      * set.
      */
     [[nodiscard]] iterator end() const noexcept {
-        return iterator{packed, {}};
+        return iterator{packed, this, {}};
     }
 
     /*! @copydoc end */
@@ -800,8 +952,17 @@ public:
      * @return The version of the given identifier.
      */
     version_type bump(const entity_type entt) {
+        if(entt == null || entt == tombstone) {
+            return current(entt);
+        }
+
+        auto *slot = sparse_ptr(entt);
+
+        if(slot == nullptr || *slot == tombstone) {
+            return current(entt);
+        }
+
         auto &elem = sparse_ref(entt);
-        ENTT_ASSERT(entt != null && elem != tombstone, "Cannot set the required version");
         elem = traits_type::combine(traits_type::to_integral(elem), traits_type::to_integral(entt));
         packed[entity_to_pos(elem)] = entt;
         return traits_type::to_version(entt);
@@ -817,6 +978,10 @@ public:
      * @param entt A valid identifier.
      */
     void erase(const entity_type entt) {
+        if((entt == removing) || !contains(entt)) {
+            return;
+        }
+
         const auto it = to_iterator(entt);
         pop(it, it + 1u);
     }
@@ -847,7 +1012,7 @@ public:
      * @return True if the entity is actually removed, false otherwise.
      */
     bool remove(const entity_type entt) {
-        return contains(entt) && (erase(entt), true);
+        return (entt != removing) && contains(entt) && (erase(entt), true);
     }
 
     /**
@@ -888,6 +1053,7 @@ public:
     /*! @brief Removes all tombstones from a sparse set. */
     void compact() {
         if(mode == deletion_policy::in_place) {
+            const auto count = packed.size();
             size_type from = packed.size();
             size_type pos = stl::exchange(head, max_size);
 
@@ -907,6 +1073,10 @@ public:
             }
 
             packed.erase(packed.begin() + static_cast<difference_type>(from), packed.end());
+
+            if(packed.size() != count) {
+                touch();
+            }
         }
     }
 
@@ -924,12 +1094,17 @@ public:
      * @param rhs A valid identifier.
      */
     void swap_elements(const entity_type lhs, const entity_type rhs) {
+        if(!contains(lhs) || !contains(rhs) || lhs == rhs) {
+            return;
+        }
+
         const auto from = index(lhs);
         const auto to = index(rhs);
 
         // basic no-leak guarantee if swapping throws
         swap_or_move(from, to);
         swap_at(from, to);
+        touch();
     }
 
     /**
@@ -964,8 +1139,11 @@ public:
      */
     template<typename Compare, typename Sort = std_sort, typename... Args>
     void sort_n(const size_type length, Compare compare, Sort algo = Sort{}, Args &&...args) {
-        ENTT_ASSERT((mode != deletion_policy::in_place) || (head == max_size), "Sorting with tombstones not allowed");
-        ENTT_ASSERT(length <= packed.size(), "Length exceeds the number of elements");
+        const auto live = (mode == deletion_policy::swap_only) ? head : packed.size();
+
+        if(((mode == deletion_policy::in_place) && (head != max_size)) || (length > live)) {
+            return;
+        }
 
         algo(packed.rend() - static_cast<difference_type>(length), packed.rend(), stl::move(compare), stl::forward<Args>(args)...);
 
@@ -983,6 +1161,8 @@ public:
                 curr = stl::exchange(next, idx);
             }
         }
+
+        touch();
     }
 
     /**
@@ -1027,6 +1207,7 @@ public:
                 if(const auto entt = *it; entt != curr) {
                     // basic no-leak guarantee (with invalid state) if swapping throws
                     swap_elements(entt, curr);
+                    it.sync();
                 }
 
                 ++it;

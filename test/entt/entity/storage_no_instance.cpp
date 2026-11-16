@@ -231,8 +231,9 @@ ENTT_DEBUG_TYPED_TEST(StorageNoInstanceDeathTest, Emplace) {
 
     pool.emplace(entity);
 
-    ASSERT_DEATH(pool.emplace(entity), "");
-    ASSERT_DEATH(this->emplace_instance(pool, entity), "");
+    ASSERT_NO_THROW(pool.emplace(entity));
+    ASSERT_NO_THROW(this->emplace_instance(pool, entity));
+    ASSERT_EQ(pool.size(), 1u);
 }
 
 TYPED_TEST(StorageNoInstance, TryEmplace) {
@@ -320,8 +321,9 @@ ENTT_DEBUG_TYPED_TEST(StorageNoInstanceDeathTest, Insert) {
 
     pool.insert(entity.begin(), entity.end());
 
-    ASSERT_DEATH(pool.insert(entity.begin(), entity.end()), "");
-    ASSERT_DEATH(this->insert_instance(pool, entity.begin(), entity.end()), "");
+    ASSERT_NO_THROW(pool.insert(entity.begin(), entity.end()));
+    ASSERT_NO_THROW(this->insert_instance(pool, entity.begin(), entity.end()));
+    ASSERT_EQ(pool.size(), entity.size());
 }
 
 TYPED_TEST(StorageNoInstance, Iterable) {

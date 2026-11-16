@@ -126,6 +126,9 @@ class group_handler final: public group_descriptor {
         // we cannot iterate backwards because we want to leave behind valid entities in case of owned types
         for(auto first = pools[0u]->rbegin(), last = first + static_cast<decltype(pools)::difference_type>(pools[0u]->size()); first != last; ++first) {
             push_on_construct(*first);
+            auto base = first.base();
+            base.sync();
+            first = decltype(first){base};
         }
     }
 

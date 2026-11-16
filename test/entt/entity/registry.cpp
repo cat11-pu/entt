@@ -836,8 +836,9 @@ ENTT_DEBUG_TEST_F(RegistryDeathTest, DestroyVersion) {
 
     registry.destroy(entity);
 
-    ASSERT_DEATH(registry.destroy(entity), "");
-    ASSERT_DEATH(registry.destroy(entity, 3), "");
+    ASSERT_NO_THROW(registry.destroy(entity));
+    ASSERT_NO_THROW(registry.destroy(entity, 3));
+    ASSERT_FALSE(registry.valid(entity));
 }
 
 TEST_F(Registry, DestroyRange) {
@@ -1036,7 +1037,8 @@ ENTT_DEBUG_TEST_F(RegistryDeathTest, Emplace) {
 
     registry.destroy(entity);
 
-    ASSERT_DEATH(registry.emplace<int>(entity), "");
+    ASSERT_NO_THROW(registry.emplace<int>(entity));
+    ASSERT_FALSE(registry.all_of<int>(entity));
 }
 
 TEST_F(Registry, Insert) {
@@ -1083,8 +1085,9 @@ ENTT_DEBUG_TEST_F(RegistryDeathTest, Insert) {
 
     registry.destroy(entity[0]);
 
-    ASSERT_DEATH(registry.insert<int>(entity.begin(), entity.end(), value[0]), "");
-    ASSERT_DEATH(registry.insert<int>(entity.begin(), entity.end(), value.begin()), "");
+    ASSERT_NO_THROW(registry.insert<int>(entity.begin(), entity.end(), value[0]));
+    ASSERT_NO_THROW(registry.insert<int>(entity.begin(), entity.end(), value.begin()));
+    ASSERT_TRUE(registry.storage<int>().empty());
 }
 
 TEST_F(Registry, EmplaceOrReplace) {
@@ -1133,7 +1136,8 @@ ENTT_DEBUG_TEST_F(RegistryDeathTest, EmplaceOrReplace) {
 
     registry.destroy(entity);
 
-    ASSERT_DEATH(registry.emplace_or_replace<int>(entity), "");
+    ASSERT_NO_THROW(registry.emplace_or_replace<int>(entity));
+    ASSERT_FALSE(registry.all_of<int>(entity));
 }
 
 TEST_F(Registry, Patch) {
@@ -1374,8 +1378,9 @@ ENTT_DEBUG_TEST_F(RegistryDeathTest, Erase) {
     const std::array entity{registry.create()};
 
     ASSERT_FALSE((registry.any_of<int>(entity[0u])));
-    ASSERT_DEATH((registry.erase<int>(entity.begin(), entity.end())), "");
-    ASSERT_DEATH(registry.erase<int>(entity[0u]), "");
+    ASSERT_NO_THROW((registry.erase<int>(entity.begin(), entity.end())));
+    ASSERT_NO_THROW(registry.erase<int>(entity[0u]));
+    ASSERT_FALSE((registry.any_of<int>(entity[0u])));
 }
 
 TEST_F(Registry, StableErase) {
@@ -1554,7 +1559,8 @@ ENTT_DEBUG_TEST_F(RegistryDeathTest, GetOrEmplace) {
 
     registry.destroy(entity);
 
-    ASSERT_DEATH([[maybe_unused]] const auto value = registry.get_or_emplace<int>(entity), "");
+    ASSERT_NO_THROW([[maybe_unused]] const auto value = registry.get_or_emplace<int>(entity));
+    ASSERT_FALSE(registry.all_of<int>(entity));
 }
 
 TEST_F(Registry, TryGet) {

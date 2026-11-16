@@ -2245,9 +2245,11 @@ entities and components during iterations, nor to have pointer stability.<br/>
   and it never invalidates already existing references.
 
 * Deleting the current entity or removing its components is allowed during
-  iterations but it could invalidate references. For all the other entities,
-  destroying them or removing their iterated components is not allowed and can
-  result in undefined behavior.
+  iterations but it could invalidate references. Mutating the iterated storage
+  through another entity can invalidate the iteration: in this case, iterators
+  converge to `end()` instead of dereferencing invalid elements. Remaining
+  entities are not guaranteed to be visited and the iteration can be restarted
+  safely.
 
 * When pointer stability is enabled for the type leading the iteration, adding
   instances of the same type may or may not cause the entity involved to be
@@ -2255,7 +2257,8 @@ entities and components during iterations, nor to have pointer stability.<br/>
   if not currently iterated, without the risk of invalidating any references.
 
 * In case of reverse iterations, adding or removing elements is not allowed
-  under any circumstances. It could quickly lead to undefined behaviors.
+  under any circumstances. Iterators detect the change and converge to the end
+  of the range without dereferencing invalid elements.
 
 In other terms, iterators are rarely invalidated. Also, component references
 are not invalidated when a new element is added while they could be invalidated
@@ -2279,8 +2282,9 @@ the deletion of entities and components at the end of the function to avoid
 dangling pointers.
 
 For all types that do not offer stable pointers, iterators are also invalidated
-and the behavior is undefined if an entity is modified or destroyed and it is
-not the one currently returned by the iterator nor a newly created one.<br/>
+if an entity is modified or destroyed and it is not the one currently returned
+by the iterator nor a newly created one. Invalidated iterators compare equal to
+the end of the range and are never dereferenced.<br/>
 To work around it, possible approaches are:
 
 * Store aside the entities and the components to be removed and perform the

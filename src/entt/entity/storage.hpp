@@ -25,9 +25,9 @@ namespace entt {
 /*! @cond ENTT_INTERNAL */
 namespace internal {
 
-template<typename Container, auto Page>
+template<typename Container, auto Page, typename Owner = void>
 class storage_iterator final {
-    template<typename, auto>
+    template<typename, auto, typename>
     friend class storage_iterator;
 
     using container_type = stl::remove_const_t<Container>;
@@ -44,20 +44,50 @@ public:
     using reference = iterator_traits::reference;
     using difference_type = iterator_traits::difference_type;
     using iterator_category = stl::random_access_iterator_tag;
+    using entity_type = stl::conditional_t<stl::is_void_v<Owner>, value_type, typename Owner::entity_type>;
 
-    constexpr storage_iterator() noexcept = default;
+    constexpr storage_iterator() noexcept
+        : payload{},
+          owner{},
+          offset{},
+          expected{},
+          limit{},
+          revision{},
+          removals{},
+          current{},
+          tracked{} {}
 
     constexpr storage_iterator(Container *ref, const difference_type idx) noexcept
         : payload{ref},
-          offset{idx} {}
+          owner{},
+          offset{idx},
+          expected{},
+          limit{idx},
+          revision{},
+          removals{},
+          current{},
+          tracked{} {}
+
+    constexpr storage_iterator(Container *ref, const Owner *parent, const difference_type idx) noexcept
+        : payload{ref},
+          owner{parent},
+          offset{idx},
+          expected{parent ? static_cast<difference_type>(parent->size()) : difference_type{}},
+          limit{parent ? static_cast<difference_type>(parent->size()) : idx},
+          revision{parent ? parent->mutation() : 0u},
+          removals{parent ? parent->removed() : 0u},
+          current{},
+          tracked{} {}
 
     template<stl::same_as<stl::remove_const_t<Container>> Other>
     requires stl::is_const_v<Container>
-    constexpr storage_iterator(const storage_iterator<Other, Page> &other) noexcept
-        : storage_iterator{other.payload, other.offset} {}
+    constexpr storage_iterator(const storage_iterator<Other, Page, Owner> &other) noexcept
+        : storage_iterator{other.payload, other.owner, other.offset} {}
 
     constexpr storage_iterator &operator++() noexcept {
-        return --offset, *this;
+        refresh();
+        offset -= static_cast<difference_type>(offset != difference_type{});
+        return *this;
     }
 
     constexpr storage_iterator operator++(int) noexcept {
@@ -66,7 +96,28 @@ public:
     }
 
     constexpr storage_iterator &operator--() noexcept {
-        return ++offset, *this;
+        if constexpr(!stl::is_void_v<Owner>) {
+            if(owner) {
+                const auto length = static_cast<difference_type>(owner->size());
+
+                if((owner->mutation() != revision) || (length < expected)) {
+                    offset = limit;
+                } else if(offset < limit) {
+                    ++offset;
+                }
+
+                expected = (expected < length) ? length : expected;
+                revision = owner->mutation();
+                removals = owner->removed();
+                tracked = false;
+            } else {
+                ++offset;
+            }
+        } else {
+            ++offset;
+        }
+
+        return *this;
     }
 
     constexpr storage_iterator operator--(int) noexcept {
@@ -89,11 +140,30 @@ public:
     }
 
     constexpr storage_iterator operator-(const difference_type value) const noexcept {
-        return (*this + -value);
+        storage_iterator copy = *this;
+
+        if constexpr(!stl::is_void_v<Owner>) {
+            if(copy.owner) {
+                const auto length = static_cast<difference_type>(copy.owner->size());
+                copy.limit = (copy.limit < length) ? length : copy.limit;
+            }
+        }
+
+        copy += -value;
+        return copy;
     }
 
     [[nodiscard]] constexpr reference operator[](const difference_type value) const noexcept {
-        const auto pos = static_cast<Container::size_type>(index() - value);
+        const auto idx = index() - value;
+
+        if constexpr(!stl::is_void_v<Owner>) {
+            if(owner && idx >= difference_type{} && idx < static_cast<difference_type>(owner->size())) {
+                current = owner->data()[static_cast<Container::size_type>(idx)];
+                tracked = true;
+            }
+        }
+
+        const auto pos = static_cast<Container::size_type>(idx);
         return (*payload)[pos / Page][fast_mod(static_cast<stl::size_t>(pos), Page)];
     }
 
@@ -105,19 +175,19 @@ public:
         return operator[](0);
     }
 
-    template<typename Other, auto Arg>
-    [[nodiscard]] constexpr stl::ptrdiff_t operator-(const storage_iterator<Other, Arg> &other) const noexcept {
+    template<typename Other, auto Arg, typename OtherOwner>
+    [[nodiscard]] constexpr stl::ptrdiff_t operator-(const storage_iterator<Other, Arg, OtherOwner> &other) const noexcept {
         // intentionally reversed due to backward iteration
         return other.offset - offset;
     }
 
-    template<typename Other, auto Arg>
-    [[nodiscard]] constexpr bool operator==(const storage_iterator<Other, Arg> &other) const noexcept {
+    template<typename Other, auto Arg, typename OtherOwner>
+    [[nodiscard]] constexpr bool operator==(const storage_iterator<Other, Arg, OtherOwner> &other) const noexcept {
         return offset == other.offset;
     }
 
-    template<typename Other, auto Arg>
-    [[nodiscard]] constexpr auto operator<=>(const storage_iterator<Other, Arg> &other) const noexcept {
+    template<typename Other, auto Arg, typename OtherOwner>
+    [[nodiscard]] constexpr auto operator<=>(const storage_iterator<Other, Arg, OtherOwner> &other) const noexcept {
         // intentionally reversed due to backward iteration
         return other.offset <=> offset;
     }
@@ -127,8 +197,38 @@ public:
     }
 
 private:
+    constexpr void refresh() noexcept {
+        if constexpr(!stl::is_void_v<Owner>) {
+            if(owner) {
+                const auto length = static_cast<difference_type>(owner->size());
+                const auto mutation = owner->mutation();
+                const auto removed_count = owner->removed();
+                const bool current_removed = tracked
+                                             && (removed_count == removals + 1u)
+                                             && !owner->contains(current)
+                                             && ((length + 1 == expected) || (length == expected));
+
+                if((mutation != revision) && !(mutation == revision + 1u && current_removed)) {
+                    offset = {};
+                }
+
+                expected = length;
+                revision = mutation;
+                removals = removed_count;
+                tracked = false;
+            }
+        }
+    }
+
     Container *payload;
+    const Owner *owner;
     difference_type offset;
+    difference_type expected;
+    difference_type limit;
+    stl::size_t revision;
+    stl::size_t removals;
+    mutable entity_type current;
+    mutable bool tracked;
 };
 
 template<typename It, typename... Other>
@@ -217,6 +317,12 @@ class basic_storage: public basic_sparse_set<Entity, typename stl::allocator_tra
         return payload[pos / traits_type::page_size][fast_mod(pos, traits_type::page_size)];
     }
 
+    template<typename U = typename alloc_traits::value_type>
+    static U &invalid_element() noexcept {
+        static U value{};
+        return value;
+    }
+
     auto assure_at_least(const stl::size_t pos) {
         const auto idx = pos / traits_type::page_size;
 
@@ -241,6 +347,10 @@ class basic_storage: public basic_sparse_set<Entity, typename stl::allocator_tra
 
     template<typename... Args>
     auto emplace_element(const Entity entt, const bool force_back, Args &&...args) {
+        if(entt == null || entt == tombstone || base_type::contains(entt)) {
+            return base_type::find(entt);
+        }
+
         const auto it = base_type::try_emplace(entt, force_back);
 
         ENTT_TRY {
@@ -307,22 +417,37 @@ protected:
     void pop(underlying_iterator first, underlying_iterator last) override {
         // cannot use first.index() in any case because it would break with cross iterators
         if constexpr(traits_type::in_place_delete) {
-            for(allocator_type allocator{get_allocator()}; first != last; ++first) {
-                alloc_traits::destroy(allocator, stl::addressof(element_at(base_type::index(*first))));
-                base_type::in_place_pop(*first);
+            for(allocator_type allocator{get_allocator()}; first != last && first.index() >= difference_type{}; ++first) {
+                const auto entt = *first;
+                const auto pos = base_type::index(entt);
+                const auto prev = base_type::removing;
+                base_type::removing = entt;
+                alloc_traits::destroy(allocator, stl::addressof(element_at(pos)));
+                base_type::removing = prev;
+
+                if(base_type::contains(entt)) {
+                    base_type::in_place_pop(entt);
+                }
             }
         } else if constexpr(stl::is_trivially_destructible_v<element_type>) {
-            for(; first != last; ++first) {
+            for(; first != last && first.index() >= difference_type{}; ++first) {
                 element_at(base_type::index(*first)) = stl::move(element_at(base_type::size() - 1u));
                 base_type::swap_and_pop(*first);
             }
         } else {
-            for(allocator_type allocator{get_allocator()}; first != last; ++first) {
+            for(allocator_type allocator{get_allocator()}; first != last && first.index() >= difference_type{}; ++first) {
                 auto &elem = element_at(base_type::size() - 1u);
+                const auto entt = *first;
                 // destroying on exit allows reentrant destructors
-                [[maybe_unused]] auto unused = stl::exchange(element_at(base_type::index(*first)), stl::move(elem));
+                [[maybe_unused]] auto unused = stl::exchange(element_at(base_type::index(entt)), stl::move(elem));
+                const auto prev = base_type::removing;
+                base_type::removing = entt;
                 alloc_traits::destroy(allocator, stl::addressof(elem));
-                base_type::swap_and_pop(*first);
+                base_type::removing = prev;
+
+                if(base_type::contains(entt)) {
+                    base_type::swap_and_pop(entt);
+                }
             }
         }
     }
@@ -337,11 +462,22 @@ protected:
             for(auto first = base_type::begin(); first.index() >= 0; ++first) {
                 if constexpr(traits_type::in_place_delete) {
                     if(*first != tombstone) {
+                        if(*first == base_type::removing) {
+                            base_type::in_place_pop(*first);
+                            continue;
+                        }
+
                         base_type::in_place_pop(*first);
                         alloc_traits::destroy(allocator, stl::addressof(element_at(static_cast<size_type>(first.index()))));
                     }
                 } else {
+                    const auto destroy = (*first != base_type::removing);
                     base_type::swap_and_pop(*first);
+
+                    if(!destroy) {
+                        continue;
+                    }
+
                     alloc_traits::destroy(allocator, stl::addressof(element_at(static_cast<size_type>(first.index()))));
                 }
             }
@@ -391,9 +527,9 @@ public:
     /*! @brief Constant pointer type to contained elements. */
     using const_pointer = alloc_traits::template rebind_traits<typename alloc_traits::const_pointer>::const_pointer;
     /*! @brief Random access iterator type. */
-    using iterator = internal::storage_iterator<container_type, traits_type::page_size>;
+    using iterator = internal::storage_iterator<container_type, traits_type::page_size, underlying_type>;
     /*! @brief Constant random access iterator type. */
-    using const_iterator = internal::storage_iterator<const container_type, traits_type::page_size>;
+    using const_iterator = internal::storage_iterator<const container_type, traits_type::page_size, underlying_type>;
     /*! @brief Reverse iterator type. */
     using reverse_iterator = stl::reverse_iterator<iterator>;
     /*! @brief Constant reverse iterator type. */
@@ -538,7 +674,7 @@ public:
      */
     [[nodiscard]] const_iterator cbegin() const noexcept {
         const auto pos = static_cast<difference_type>(base_type::size());
-        return const_iterator{&payload, pos};
+        return const_iterator{&payload, this, pos};
     }
 
     /*! @copydoc cbegin */
@@ -549,7 +685,7 @@ public:
     /*! @copydoc begin */
     [[nodiscard]] iterator begin() noexcept {
         const auto pos = static_cast<difference_type>(base_type::size());
-        return iterator{&payload, pos};
+        return iterator{&payload, this, pos};
     }
 
     /**
@@ -558,7 +694,7 @@ public:
      * internal array.
      */
     [[nodiscard]] const_iterator cend() const noexcept {
-        return const_iterator{&payload, {}};
+        return const_iterator{&payload, this, {}};
     }
 
     /*! @copydoc cend */
@@ -568,7 +704,7 @@ public:
 
     /*! @copydoc end */
     [[nodiscard]] iterator end() noexcept {
-        return iterator{&payload, {}};
+        return iterator{&payload, this, {}};
     }
 
     /**
@@ -658,6 +794,12 @@ public:
      */
     template<typename... Args>
     value_type &emplace(const entity_type entt, Args &&...args) {
+        if(entt == null || entt == tombstone) {
+            if constexpr(stl::is_default_constructible_v<value_type>) {
+                return invalid_element();
+            }
+        }
+
         if constexpr(stl::is_aggregate_v<value_type> && (sizeof...(Args) != 0u || !stl::is_default_constructible_v<value_type>)) {
             const auto it = emplace_element(entt, false, Type{stl::forward<Args>(args)...});
             return element_at(static_cast<size_type>(it.index()));

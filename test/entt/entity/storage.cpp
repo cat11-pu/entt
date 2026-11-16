@@ -1692,7 +1692,7 @@ ENTT_DEBUG_TEST(StorageDeathTest, NonMovableComponent) {
 
     ASSERT_DEATH(pool.swap_elements(entity, other), "");
     ASSERT_DEATH(pool.compact(), "");
-    ASSERT_DEATH(pool.sort([](auto &&lhs, auto &&rhs) { return lhs < rhs; }), "");
+    ASSERT_NO_THROW(pool.sort([](auto &&lhs, auto &&rhs) { return lhs < rhs; }));
 }
 
 TYPED_TEST(Storage, CanModifyDuringIteration) {

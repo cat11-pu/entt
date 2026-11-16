@@ -11,6 +11,7 @@ _TESTS = [
     "organizer",
     "reactive_mixin",
     "registry",
+    "robustness",
     "runtime_view",
     "sigh_mixin",
     "snapshot",

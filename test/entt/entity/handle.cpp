@@ -100,7 +100,8 @@ ENTT_DEBUG_TYPED_TEST(BasicHandleDeathTest, Storage) {
     using handle_type = TestFixture::type;
     const handle_type handle{};
 
-    ASSERT_DEATH([[maybe_unused]] auto iterable = handle.storage(), "");
+    ASSERT_NO_THROW([[maybe_unused]] auto iterable = handle.storage());
+    ASSERT_EQ(handle.storage().begin(), handle.storage().end());
 }
 
 TYPED_TEST(BasicHandle, HandleStorageIterator) {
@@ -187,8 +188,9 @@ TEST(BasicHandle, Destruction) {
 ENTT_DEBUG_TEST(BasicHandleDeathTest, Destruction) {
     entt::handle handle{};
 
-    ASSERT_DEATH(handle.destroy(0u), "");
-    ASSERT_DEATH(handle.destroy(), "");
+    ASSERT_NO_THROW(handle.destroy(0u));
+    ASSERT_NO_THROW(handle.destroy());
+    ASSERT_FALSE(handle);
 }
 
 TEST(BasicHandle, Emplace) {
@@ -207,7 +209,7 @@ TEST(BasicHandle, Emplace) {
 ENTT_DEBUG_TEST(BasicHandleDeathTest, Emplace) {
     const entt::handle handle{};
 
-    ASSERT_DEATH(handle.emplace<int>(3), "");
+    ASSERT_NO_THROW([[maybe_unused]] auto &elem = handle.emplace<int>(3));
 }
 
 TEST(BasicHandle, EmplaceOrReplace) {
@@ -230,7 +232,7 @@ TEST(BasicHandle, EmplaceOrReplace) {
 ENTT_DEBUG_TEST(BasicHandleDeathTest, EmplaceOrReplace) {
     const entt::handle handle{};
 
-    ASSERT_DEATH(handle.emplace_or_replace<int>(3), "");
+    ASSERT_NO_THROW([[maybe_unused]] auto &elem = handle.emplace_or_replace<int>(3));
 }
 
 TEST(BasicHandle, Patch) {
@@ -249,7 +251,7 @@ TEST(BasicHandle, Patch) {
 ENTT_DEBUG_TEST(BasicHandleDeathTest, Patch) {
     const entt::handle handle{};
 
-    ASSERT_DEATH(handle.patch<int>([](auto &comp) { comp = 1; }), "");
+    ASSERT_NO_THROW([[maybe_unused]] auto &elem = handle.patch<int>([](auto &comp) { comp = 1; }));
 }
 
 TEST(BasicHandle, Replace) {
@@ -268,7 +270,7 @@ TEST(BasicHandle, Replace) {
 ENTT_DEBUG_TEST(BasicHandleDeathTest, Replace) {
     const entt::handle handle{};
 
-    ASSERT_DEATH(handle.replace<int>(3), "");
+    ASSERT_NO_THROW([[maybe_unused]] auto &elem = handle.replace<int>(3));
 }
 
 TEST(BasicHandle, Remove) {
@@ -291,7 +293,7 @@ TEST(BasicHandle, Remove) {
 ENTT_DEBUG_TEST(BasicHandleDeathTest, Remove) {
     const entt::handle handle{};
 
-    ASSERT_DEATH(handle.remove<int>(), "");
+    ASSERT_EQ(handle.remove<int>(), 0u);
 }
 
 TEST(BasicHandle, Erase) {
@@ -311,7 +313,7 @@ TEST(BasicHandle, Erase) {
 ENTT_DEBUG_TEST(BasicHandleDeathTest, Erase) {
     const entt::handle handle{};
 
-    ASSERT_DEATH(handle.erase<int>(), "");
+    ASSERT_NO_THROW(handle.erase<int>());
 }
 
 TYPED_TEST(BasicHandle, AllAnyOf) {
@@ -337,8 +339,8 @@ ENTT_DEBUG_TYPED_TEST(BasicHandleDeathTest, AllAnyOf) {
     using handle_type = TestFixture::type;
     const handle_type handle{};
 
-    ASSERT_DEATH([[maybe_unused]] const auto all_of = handle.template all_of<int>(), "");
-    ASSERT_DEATH([[maybe_unused]] const auto any_of = handle.template any_of<int>(), "");
+    ASSERT_FALSE(handle.template all_of<int>());
+    ASSERT_FALSE(handle.template any_of<int>());
 }
 
 TYPED_TEST(BasicHandle, Get) {
@@ -363,7 +365,7 @@ ENTT_DEBUG_TYPED_TEST(BasicHandleDeathTest, Get) {
     using handle_type = TestFixture::type;
     const handle_type handle{};
 
-    ASSERT_DEATH([[maybe_unused]] const auto &elem = handle.template get<int>(), "");
+    ASSERT_EQ(handle.template get<int>(), 0);
 }
 
 TEST(BasicHandle, GetOrEmplace) {
@@ -384,7 +386,7 @@ TEST(BasicHandle, GetOrEmplace) {
 ENTT_DEBUG_TEST(BasicHandleDeathTest, GetOrEmplace) {
     const entt::handle handle{};
 
-    ASSERT_DEATH([[maybe_unused]] auto &&elem = handle.template get_or_emplace<int>(3), "");
+    ASSERT_NO_THROW([[maybe_unused]] auto &&elem = handle.template get_or_emplace<int>(3));
 }
 
 TYPED_TEST(BasicHandle, TryGet) {
@@ -411,7 +413,7 @@ ENTT_DEBUG_TYPED_TEST(BasicHandleDeathTest, TryGet) {
     using handle_type = TestFixture::type;
     const handle_type handle{};
 
-    ASSERT_DEATH([[maybe_unused]] const auto *elem = handle.template try_get<int>(), "");
+    ASSERT_EQ(handle.template try_get<int>(), nullptr);
 }
 
 TYPED_TEST(BasicHandle, Orphan) {
@@ -439,7 +441,7 @@ ENTT_DEBUG_TYPED_TEST(BasicHandleDeathTest, Orphan) {
     using handle_type = TestFixture::type;
     const handle_type handle{};
 
-    ASSERT_DEATH([[maybe_unused]] const auto result = handle.orphan(), "");
+    ASSERT_TRUE(handle.orphan());
 }
 
 TEST(BasicHandle, Component) {
