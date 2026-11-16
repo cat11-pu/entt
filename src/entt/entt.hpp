@@ -28,6 +28,7 @@ namespace entt::stl {}
 #include "core/type_info.hpp"
 #include "core/type_traits.hpp"
 #include "core/utility.hpp"
+#include "entity/command_buffer.hpp"
 #include "entity/component.hpp"
 #include "entity/entity.hpp"
 #include "entity/group.hpp"

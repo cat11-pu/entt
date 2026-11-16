@@ -24,6 +24,7 @@
     * [Invoke](#invoke)
     * [Connection helper](#connection-helper)
     * [Handle](#handle)
+    * [Command buffer](#command-buffer)
     * [Organizer](#organizer)
   * [Context variables](#context-variables)
     * [Aliased properties](#aliased-properties)
@@ -877,6 +878,48 @@ box but not the other way around.
 This class is intended to simplify function signatures. In case of functions
 that take a registry and an entity and do most of their work on that entity,
 users might want to consider using handles, either const or non-const.
+
+### Command buffer
+
+The `command_buffer` class template defers registry operations until a later
+point, typically the end of the frame:
+
+```cpp
+entt::command_buffer buffer{registry};
+
+// grouped under an entity
+buffer.submit(entity, [entity](entt::registry &reg) {
+    reg.emplace_or_replace<position>(entity, 1, 2);
+});
+
+// grouped under command_buffer::global_entity()
+buffer.submit([](entt::registry &reg) {
+    reg.create();
+});
+
+// executes both commands in submission order
+buffer.commit();
+```
+
+Commands are indexed by entity so that they can be inspected per group through
+`size(entity)` and `group_count`. However, `commit` always executes the global
+submission order, exactly as if the commands had been executed immediately.
+This remains true when commands on different entities depend on each other.
+
+A pending batch can be discarded without touching the registry via `rollback`,
+which also returns the number of discarded commands:
+
+```cpp
+buffer.rollback();
+```
+
+Commands submitted while `commit` is running are retained for the next commit,
+so a system can safely enqueue follow-up work. A throwing command propagates
+its exception and drops the rest of the pending batch, but operations already
+executed by that commit are not rolled back.
+
+The buffer is not thread safe. It also does not own the registry, which must
+outlive the buffer.
 
 ### Organizer
 

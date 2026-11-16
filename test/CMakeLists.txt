@@ -271,6 +271,7 @@ SETUP_BASIC_TEST(
 SETUP_BASIC_TEST(
     NAME entity
     SOURCES
+        entt/entity/command_buffer.cpp
         entt/entity/component.cpp
         entt/entity/entity.cpp
         entt/entity/group.cpp

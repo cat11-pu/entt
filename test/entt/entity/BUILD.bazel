@@ -3,6 +3,7 @@ load("@rules_cc//cc:defs.bzl", "cc_test")
 
 # buildifier: keep sorted
 _TESTS = [
+    "command_buffer",
     "component",
     "entity",
     "group",

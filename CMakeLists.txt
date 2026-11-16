@@ -147,6 +147,7 @@ if(ENTT_INCLUDE_HEADERS)
         core/type_info.hpp
         core/type_traits.hpp
         core/utility.hpp
+        entity/command_buffer.hpp
         entity/component.hpp
         entity/entity.hpp
         entity/fwd.hpp

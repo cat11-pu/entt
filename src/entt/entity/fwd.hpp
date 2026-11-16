@@ -56,6 +56,9 @@ class basic_group;
 template<typename>
 class basic_organizer;
 
+template<typename Registry, typename Allocator = stl::allocator<entity>>
+class basic_command_buffer;
+
 template<typename, typename...>
 class basic_handle;
 
@@ -97,6 +100,9 @@ using registry = basic_registry<>;
 
 /*! @brief Alias declaration for the most common use case. */
 using organizer = basic_organizer<registry>;
+
+/*! @brief Alias declaration for the most common use case. */
+using command_buffer = basic_command_buffer<registry>;
 
 /*! @brief Alias declaration for the most common use case. */
 using handle = basic_handle<registry>;

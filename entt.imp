@@ -15,6 +15,7 @@
   { "include": [ "@[\"<].*/core/fwd\\.hpp[\">]", "private", "<entt/core/monostate.hpp>", "public" ] },
   { "include": [ "@[\"<].*/core/fwd\\.hpp[\">]", "private", "<entt/core/type_info.hpp>", "public" ] },
   { "include": [ "@[\"<].*/core/fwd\\.hpp[\">]", "private", "<entt/core/type_traits.hpp>", "public" ] },
+  { "include": [ "@[\"<].*/entity/fwd\\.hpp[\">]", "private", "<entt/entity/command_buffer.hpp>", "public" ] },
   { "include": [ "@[\"<].*/entity/fwd\\.hpp[\">]", "private", "<entt/entity/component.hpp>", "public" ] },
   { "include": [ "@[\"<].*/entity/fwd\\.hpp[\">]", "private", "<entt/entity/entity.hpp>", "public" ] },
   { "include": [ "@[\"<].*/entity/fwd\\.hpp[\">]", "private", "<entt/entity/group.hpp>", "public" ] },
